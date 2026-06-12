@@ -1,0 +1,17 @@
+backend/bin/
+backend/obj/
+backend/Data/
+frontend/node_modules/
+frontend/dist/
+data/
+browser-profiles/*
+!browser-profiles/.gitkeep
+projects/*
+!projects/.gitkeep
+*.log
+*.err.log
+.env
+.env.*
+*.local
+*.user
+*.suo

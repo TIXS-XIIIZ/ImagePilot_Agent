@@ -1,0 +1,16 @@
+{
+  "name": "Google AI Studio",
+  "type": "Web",
+  "startUrl": "https://aistudio.google.com/",
+  "promptInputSelector": "textarea",
+  "submitButtonSelector": "button[aria-label*='Run']",
+  "resultContainerSelector": ".response-container",
+  "downloadButtonSelector": "",
+  "verificationSelector": "iframe[src*='captcha']",
+  "defaultTimeoutSeconds": 180,
+  "delayBetweenJobsSeconds": 10,
+  "manualModeFallback": true,
+  "automationEnabled": false,
+  "browserProfilePath": "",
+  "browserChannel": ""
+}

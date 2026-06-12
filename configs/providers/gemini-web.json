@@ -1,0 +1,16 @@
+{
+  "name": "Gemini Web",
+  "type": "Web",
+  "startUrl": "https://gemini.google.com/app",
+  "promptInputSelector": "div[contenteditable='true']",
+  "submitButtonSelector": "button[aria-label*='Send']",
+  "resultContainerSelector": "message-content",
+  "downloadButtonSelector": "button[aria-label*='Download']",
+  "verificationSelector": "iframe[src*='captcha']",
+  "defaultTimeoutSeconds": 180,
+  "delayBetweenJobsSeconds": 10,
+  "manualModeFallback": true,
+  "automationEnabled": false,
+  "browserProfilePath": "",
+  "browserChannel": ""
+}

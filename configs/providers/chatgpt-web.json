@@ -1,0 +1,16 @@
+{
+  "name": "ChatGPT Web",
+  "type": "Web",
+  "startUrl": "https://chatgpt.com/",
+  "promptInputSelector": "#prompt-textarea",
+  "submitButtonSelector": "button[data-testid='send-button']",
+  "resultContainerSelector": "[data-message-author-role='assistant']",
+  "downloadButtonSelector": "button[aria-label*='Download']",
+  "verificationSelector": "iframe[src*='captcha'], [data-testid*='captcha']",
+  "defaultTimeoutSeconds": 180,
+  "delayBetweenJobsSeconds": 10,
+  "manualModeFallback": true,
+  "automationEnabled": false,
+  "browserProfilePath": "",
+  "browserChannel": ""
+}
