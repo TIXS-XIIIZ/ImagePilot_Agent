@@ -46,6 +46,7 @@ public sealed class SqlServerService(AppDataStore store, WindowsCredentialStore 
             store.Write(data =>
             {
                 data.SqlServer.SchemaInitialized = true;
+                data.PersistenceMode = "SqlServer";
                 return data.SqlServer;
             });
             return new SqlConnectionResult(true, "SQL Server schema is ready.");
@@ -77,7 +78,9 @@ public sealed class SqlServerService(AppDataStore store, WindowsCredentialStore 
     public async Task<SqlConnection?> TryOpenSavedConnectionAsync(CancellationToken cancellationToken)
     {
         var settings = store.Read(data => data.SqlServer);
-        if (!settings.SchemaInitialized)
+        var persistenceMode = store.Read(data => data.PersistenceMode);
+        if (!persistenceMode.Equals("SqlServer", StringComparison.OrdinalIgnoreCase) ||
+            !settings.SchemaInitialized)
         {
             return null;
         }

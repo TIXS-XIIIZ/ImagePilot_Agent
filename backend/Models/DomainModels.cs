@@ -138,6 +138,13 @@ public sealed class SqlServerSettings
     public bool SchemaInitialized { get; set; }
 }
 
+public sealed class SqliteSettings
+{
+    public string DatabasePath { get; set; } = "";
+    public bool SchemaInitialized { get; set; }
+    public DateTime? LastSyncedAt { get; set; }
+}
+
 public sealed class PromptAiSettings
 {
     public bool Enabled { get; set; }
@@ -162,6 +169,8 @@ public sealed class AppData
     public List<BatchRunRecord> BatchRuns { get; set; } = [];
     public List<PromptJobRecord> PromptJobs { get; set; } = [];
     public List<OutputFileRecord> OutputFiles { get; set; } = [];
+    public string PersistenceMode { get; set; } = "Json";
+    public SqliteSettings Sqlite { get; set; } = new();
     public SqlServerSettings SqlServer { get; set; } = new();
     public PromptAiSettings PromptAi { get; set; } = new();
 }
@@ -178,6 +187,9 @@ public sealed record PromptGenerateRequest(
 
 public sealed record SqlSettingsSaveRequest(SqlServerSettings Settings, string? Password);
 public sealed record SqlConnectionResult(bool Success, string Message);
+public sealed record PersistenceSettingsResult(string Mode, SqliteSettings Sqlite, SqlServerSettings SqlServer);
+public sealed record PersistenceModeSaveRequest(string Mode);
+public sealed record SqliteSettingsSaveRequest(SqliteSettings Settings);
 public sealed record PromptAiSettingsSaveRequest(PromptAiSettings Settings, string? ApiKey);
 public sealed record PromptAiResult(bool Success, string Message, string? Prompt = null);
 public sealed record PromptEnhanceRequest(string Prompt, string? Category, string? ExtraInstructions);

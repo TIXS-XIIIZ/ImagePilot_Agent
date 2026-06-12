@@ -10,6 +10,7 @@ builder.Services.AddSingleton<AppPaths>();
 builder.Services.AddSingleton<AppDataStore>();
 builder.Services.AddSingleton<WindowsCredentialStore>();
 builder.Services.AddSingleton<SqlServerService>();
+builder.Services.AddSingleton<SqliteService>();
 builder.Services.AddSingleton<PromptTemplateService>();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<PromptAiService>();
@@ -19,6 +20,8 @@ builder.Services.AddSingleton<BatchQueueService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<BatchQueueService>());
 builder.Services.AddSingleton<SqlServerSyncService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<SqlServerSyncService>());
+builder.Services.AddSingleton<SqliteSyncService>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<SqliteSyncService>());
 
 var app = builder.Build();
 app.UseCors();
@@ -219,6 +222,22 @@ app.MapPost("/api/batch-runs/{runId:int}/jobs/{jobId:int}/retry", (int runId, in
     Results.Ok(queue.RetryJob(runId, jobId)));
 
 app.MapGet("/api/settings/sql-server", (AppDataStore store) => store.Read(data => data.SqlServer));
+app.MapGet("/api/settings/persistence", (AppDataStore store, SqliteService sqlite) =>
+{
+    return store.Read(data => new PersistenceSettingsResult(
+        string.IsNullOrWhiteSpace(data.PersistenceMode) ? "Json" : data.PersistenceMode,
+        sqlite.Normalize(data.Sqlite),
+        data.SqlServer));
+});
+app.MapPost("/api/settings/persistence/mode", (PersistenceModeSaveRequest request, SqliteService sqlite) =>
+    Results.Ok(sqlite.SaveMode(request)));
+app.MapGet("/api/settings/sqlite", (AppDataStore store, SqliteService sqlite) => store.Read(data => sqlite.Normalize(data.Sqlite)));
+app.MapPost("/api/settings/sqlite/save", (SqliteSettingsSaveRequest request, SqliteService sqlite) =>
+    Results.Ok(sqlite.Save(request)));
+app.MapPost("/api/settings/sqlite/test", async (SqliteSettingsSaveRequest request, SqliteService sqlite, CancellationToken cancellationToken) =>
+    Results.Ok(await sqlite.TestAsync(request.Settings, cancellationToken)));
+app.MapPost("/api/settings/sqlite/initialize", async (SqliteService sqlite, CancellationToken cancellationToken) =>
+    Results.Ok(await sqlite.InitializeSchemaAsync(cancellationToken)));
 app.MapPost("/api/settings/sql-server/save", (SqlSettingsSaveRequest request, SqlServerService sql) =>
 {
     sql.Save(request);

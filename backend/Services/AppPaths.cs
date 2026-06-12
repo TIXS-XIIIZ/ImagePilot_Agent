@@ -22,4 +22,6 @@ public sealed class AppPaths
     public string ProviderConfigsFolder { get; }
     public string DataFile => Path.Combine(DataFolder, "imagepilot-data.json");
     public string SchemaFile => Path.Combine(Root, "configs", "schema.sql");
+    public string SqliteSchemaFile => Path.Combine(Root, "configs", "schema.sqlite.sql");
+    public string DefaultSqliteDatabaseFile => Path.Combine(DataFolder, "imagepilot.db");
 }

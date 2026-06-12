@@ -29,6 +29,8 @@ cd ..
 
 Open `http://localhost:5173`.
 
+On Windows, double-click `start.bat` if PowerShell does not run `.ps1` files by double-clicking.
+
 ## Development
 
 ```powershell
@@ -41,7 +43,15 @@ The API listens only on `http://localhost:5000`. The UI sends a local token in `
 
 ## SQL Server
 
-The dashboard works immediately with its local JSON store under `data/`. To enable SQL Server mirroring, open **SQL Server**, enter the connection settings, test the connection, save them, and click **Initialize schema**. The app creates the database if needed, applies `configs/schema.sql`, then mirrors project, provider, batch, job, and output metadata in the background.
+The dashboard works immediately with its local JSON store under `data/`.
+
+Open **Database** to choose a persistence mirror:
+
+- **Local JSON only**: no database install, simplest for one machine.
+- **SQLite file**: recommended for other machines. It creates `data/imagepilot.db` automatically and requires no SQL Server installation.
+- **SQL Server**: optional server mirror. Enter the connection settings, test, save, and click **Initialize SQL Server**.
+
+SQLite uses `configs/schema.sqlite.sql`. SQL Server uses `configs/schema.sql`. Secrets such as SQL passwords stay in Windows Credential Manager.
 
 ## External Prompt AI
 

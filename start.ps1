@@ -7,9 +7,15 @@ $pathValue = [Environment]::GetEnvironmentVariable("Path", "Process")
 [Environment]::SetEnvironmentVariable("PATH", $null, "Process")
 [Environment]::SetEnvironmentVariable("Path", $pathValue, "Process")
 
-Start-Process dotnet -ArgumentList "run --project `"$root\backend\ImagePilot.Api.csproj`"" -WorkingDirectory $root -WindowStyle Hidden
-Start-Process cmd.exe -ArgumentList "/c", "npm run dev -- --host localhost" -WorkingDirectory "$root\frontend" -WindowStyle Hidden
+Start-Process cmd.exe `
+    -ArgumentList "/k", "dotnet run --project `"$root\backend\ImagePilot.Api.csproj`"" `
+    -WorkingDirectory $root
+
+Start-Process cmd.exe `
+    -ArgumentList "/k", "npm.cmd run dev -- --host localhost" `
+    -WorkingDirectory "$root\frontend"
 
 Write-Host "ImagePilot_Agent is starting."
 Write-Host "Dashboard: http://localhost:5173"
 Write-Host "API:       http://localhost:5000"
+Write-Host "Two terminal windows were opened: one for the API and one for the UI."

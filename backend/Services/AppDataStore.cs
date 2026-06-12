@@ -120,6 +120,12 @@ public sealed class AppDataStore
             changed = true;
         }
 
+        if (string.IsNullOrWhiteSpace(_data.PersistenceMode))
+        {
+            _data.PersistenceMode = "Json";
+            changed = true;
+        }
+
         if (changed)
         {
             Save();

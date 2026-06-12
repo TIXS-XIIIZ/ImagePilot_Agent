@@ -77,6 +77,19 @@ type SqlSettings = {
   encrypt: boolean;
   trustServerCertificate: boolean;
   passwordSaved: boolean;
+  schemaInitialized: boolean;
+};
+
+type SqliteSettings = {
+  databasePath: string;
+  schemaInitialized: boolean;
+  lastSyncedAt?: string;
+};
+
+type PersistenceSettings = {
+  mode: string;
+  sqlite: SqliteSettings;
+  sqlServer: SqlSettings;
 };
 
 type PromptAiSettings = {
@@ -123,6 +136,11 @@ const emptySql: SqlSettings = {
   encrypt: true,
   trustServerCertificate: true,
   passwordSaved: false,
+  schemaInitialized: false,
+};
+const emptySqlite: SqliteSettings = {
+  databasePath: "",
+  schemaInitialized: false,
 };
 const emptyPromptAi: PromptAiSettings = {
   enabled: false,
@@ -230,6 +248,8 @@ export function App() {
   const [projectDraft, setProjectDraft] = useState<Project>(emptyProject);
   const [providerDraft, setProviderDraft] = useState<Provider>();
   const [sql, setSql] = useState<SqlSettings>(emptySql);
+  const [sqlite, setSqlite] = useState<SqliteSettings>(emptySqlite);
+  const [persistenceMode, setPersistenceMode] = useState("Json");
   const [sqlPassword, setSqlPassword] = useState("");
   const [promptAi, setPromptAi] = useState<PromptAiSettings>(emptyPromptAi);
   const [promptAiApiKey, setPromptAiApiKey] = useState("");
@@ -276,7 +296,7 @@ export function App() {
 
   useEffect(() => {
     if (tab === "sql") {
-      api<SqlSettings>("/settings/sql-server").then(setSql).catch(showError);
+      loadPersistence().catch(showError);
     }
   }, [tab]);
 
@@ -309,6 +329,13 @@ export function App() {
     const message = error instanceof Error ? error.message : "Unexpected error";
     setErrorMessage(message);
     setNotice(message);
+  }
+
+  async function loadPersistence() {
+    const settings = await api<PersistenceSettings>("/settings/persistence");
+    setPersistenceMode(settings.mode || "Json");
+    setSqlite(settings.sqlite);
+    setSql(settings.sqlServer);
   }
 
   async function copyPromptToClipboard(prompt?: string, announce = true) {
@@ -576,7 +603,7 @@ export function App() {
     try {
       await api("/settings/sql-server/save", { method: "POST", body: JSON.stringify({ settings: sql, password: sqlPassword }) });
       setSqlPassword("");
-      setSql(await api<SqlSettings>("/settings/sql-server"));
+      await loadPersistence();
       showNotice("SQL Server settings saved");
     } catch (error) {
       showError(error);
@@ -586,6 +613,55 @@ export function App() {
   async function initializeSql() {
     try {
       const result = await api<{ success: boolean; message: string }>("/settings/sql-server/initialize", { method: "POST" });
+      showNotice(result.message);
+      await loadPersistence();
+    } catch (error) {
+      showError(error);
+    }
+  }
+
+  async function savePersistenceMode(mode = persistenceMode) {
+    try {
+      const result = await api<{ success: boolean; message: string }>("/settings/persistence/mode", {
+        method: "POST",
+        body: JSON.stringify({ mode }),
+      });
+      setPersistenceMode(mode);
+      showNotice(result.message);
+    } catch (error) {
+      showError(error);
+    }
+  }
+
+  async function testSqlite() {
+    try {
+      const result = await api<{ success: boolean; message: string }>("/settings/sqlite/test", {
+        method: "POST",
+        body: JSON.stringify({ settings: sqlite }),
+      });
+      showNotice(result.message);
+    } catch (error) {
+      showError(error);
+    }
+  }
+
+  async function saveSqlite() {
+    try {
+      const result = await api<{ success: boolean; message: string }>("/settings/sqlite/save", {
+        method: "POST",
+        body: JSON.stringify({ settings: sqlite }),
+      });
+      await loadPersistence();
+      showNotice(result.message);
+    } catch (error) {
+      showError(error);
+    }
+  }
+
+  async function initializeSqlite() {
+    try {
+      const result = await api<{ success: boolean; message: string }>("/settings/sqlite/initialize", { method: "POST" });
+      await loadPersistence();
       showNotice(result.message);
     } catch (error) {
       showError(error);
@@ -693,7 +769,7 @@ export function App() {
             ["profiles", "Chrome Profiles"],
             ["history", "History"],
             ["prompt-ai", "Prompt AI API"],
-            ["sql", "SQL Server"],
+            ["sql", "Database"],
           ].map(([id, label]) => (
             <button key={id} className={tab === id ? "nav-active" : ""} onClick={() => setTab(id)}>{label}</button>
           ))}
@@ -929,19 +1005,55 @@ export function App() {
 
         {tab === "sql" && (
           <section className="panel form-panel sql-panel">
-            <div className="panel-title"><div><p className="eyebrow">OPTIONAL PERSISTENCE</p><h2>SQL Server connection</h2></div><span>{sql.passwordSaved ? "Password stored securely" : "No saved password"}</span></div>
-            <div className="two-cols">
-              <Field label="Host"><input value={sql.host} onChange={(event) => setSql({ ...sql, host: event.target.value })} /></Field>
-              <Field label="Port"><input type="number" value={sql.port} onChange={(event) => setSql({ ...sql, port: Number(event.target.value) })} /></Field>
-              <Field label="Instance name"><input value={sql.instanceName} onChange={(event) => setSql({ ...sql, instanceName: event.target.value })} /></Field>
-              <Field label="Database name"><input value={sql.databaseName} onChange={(event) => setSql({ ...sql, databaseName: event.target.value })} /></Field>
-              <Field label="Authentication"><select value={sql.authenticationMode} onChange={(event) => setSql({ ...sql, authenticationMode: event.target.value })}><option value="Windows">Windows Authentication</option><option value="SqlServer">SQL Server Authentication</option></select></Field>
-              <Field label="Username"><input value={sql.username} onChange={(event) => setSql({ ...sql, username: event.target.value })} /></Field>
-              <Field label="Password"><input type="password" placeholder={sql.passwordSaved ? "Stored in Windows Credential Manager" : ""} value={sqlPassword} onChange={(event) => setSqlPassword(event.target.value)} /></Field>
+            <div className="panel-title">
+              <div><p className="eyebrow">LOCAL PERSISTENCE</p><h2>Database settings</h2></div>
+              <span>{persistenceMode}</span>
             </div>
-            <label className="check"><input type="checkbox" checked={sql.encrypt} onChange={(event) => setSql({ ...sql, encrypt: event.target.checked })} /> Encrypt connection</label>
-            <label className="check"><input type="checkbox" checked={sql.trustServerCertificate} onChange={(event) => setSql({ ...sql, trustServerCertificate: event.target.checked })} /> Trust server certificate</label>
-            <div className="button-row"><button onClick={testSql}>Test connection</button><button className="primary" onClick={saveSql}>Save settings</button><button onClick={initializeSql}>Initialize schema</button></div>
+            <p className="muted">Choose where ImagePilot mirrors project and history data. Local JSON always remains available. SQLite is recommended for other machines because it uses one local file and needs no database server.</p>
+            <Field label="Database mode">
+              <select value={persistenceMode} onChange={(event) => setPersistenceMode(event.target.value)}>
+                <option value="Json">Local JSON only - no database install</option>
+                <option value="Sqlite">SQLite file - portable local database</option>
+                <option value="SqlServer">SQL Server - optional server mirror</option>
+              </select>
+            </Field>
+            <div className="button-row"><button className="primary" onClick={() => savePersistenceMode()}>Save database mode</button></div>
+
+            {persistenceMode === "Json" && (
+              <div className="database-card">
+                <strong>Local JSON mode</strong>
+                <p>No database server is required. ImagePilot stores local data in the workspace `data` folder. This is the simplest mode for personal use.</p>
+              </div>
+            )}
+
+            {persistenceMode === "Sqlite" && (
+              <div className="database-card">
+                <strong>SQLite file mode</strong>
+                <p>SQLite stores the mirror database as one `.db` file. Leave the path empty to use the default `data/imagepilot.db` file.</p>
+                <Field label="SQLite database path"><input placeholder="Leave empty for data/imagepilot.db" value={sqlite.databasePath} onChange={(event) => setSqlite({ ...sqlite, databasePath: event.target.value })} /></Field>
+                <p className="field-help">Schema: {sqlite.schemaInitialized ? "Ready" : "Not initialized yet"}{sqlite.lastSyncedAt ? ` · Last sync: ${new Date(sqlite.lastSyncedAt).toLocaleString()}` : ""}</p>
+                <div className="button-row"><button onClick={testSqlite}>Test SQLite file</button><button onClick={saveSqlite}>Save SQLite settings</button><button className="primary" onClick={initializeSqlite}>Initialize SQLite</button></div>
+              </div>
+            )}
+
+            {persistenceMode === "SqlServer" && (
+              <div className="database-card">
+                <div className="panel-title"><div><p className="eyebrow">OPTIONAL SERVER</p><h3>SQL Server connection</h3></div><span>{sql.passwordSaved ? "Password stored securely" : "No saved password"}</span></div>
+                <div className="two-cols">
+                  <Field label="Host"><input value={sql.host} onChange={(event) => setSql({ ...sql, host: event.target.value })} /></Field>
+                  <Field label="Port"><input type="number" value={sql.port} onChange={(event) => setSql({ ...sql, port: Number(event.target.value) })} /></Field>
+                  <Field label="Instance name"><input value={sql.instanceName} onChange={(event) => setSql({ ...sql, instanceName: event.target.value })} /></Field>
+                  <Field label="Database name"><input value={sql.databaseName} onChange={(event) => setSql({ ...sql, databaseName: event.target.value })} /></Field>
+                  <Field label="Authentication"><select value={sql.authenticationMode} onChange={(event) => setSql({ ...sql, authenticationMode: event.target.value })}><option value="Windows">Windows Authentication</option><option value="SqlServer">SQL Server Authentication</option></select></Field>
+                  <Field label="Username"><input value={sql.username} onChange={(event) => setSql({ ...sql, username: event.target.value })} /></Field>
+                  <Field label="Password"><input type="password" placeholder={sql.passwordSaved ? "Stored in Windows Credential Manager" : ""} value={sqlPassword} onChange={(event) => setSqlPassword(event.target.value)} /></Field>
+                </div>
+                <label className="check"><input type="checkbox" checked={sql.encrypt} onChange={(event) => setSql({ ...sql, encrypt: event.target.checked })} /> Encrypt connection</label>
+                <label className="check"><input type="checkbox" checked={sql.trustServerCertificate} onChange={(event) => setSql({ ...sql, trustServerCertificate: event.target.checked })} /> Trust server certificate</label>
+                <p className="field-help">Schema: {sql.schemaInitialized ? "Ready" : "Not initialized yet"}</p>
+                <div className="button-row"><button onClick={testSql}>Test connection</button><button onClick={saveSql}>Save SQL Server settings</button><button className="primary" onClick={initializeSql}>Initialize SQL Server</button></div>
+              </div>
+            )}
           </section>
         )}
 
