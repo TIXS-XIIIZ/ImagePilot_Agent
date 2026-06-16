@@ -827,16 +827,36 @@ export function App() {
                 <div className="panel-title"><div><p className="eyebrow">RUN CONTROL</p><h3>{provider?.name ?? "Provider"}</h3></div></div>
                 {provider && (
                   <div className={`automation-card ${provider.automationEnabled ? "automation-on" : "automation-off"}`}>
-                    <strong>{provider.automationEnabled ? "Automation mode is enabled" : "Manual mode is enabled"}</strong>
-                    <p>{provider.automationEnabled
-                      ? "ImagePilot will use its controllable browser profile to type the prompt, submit it, and try to download the result. Log in once in that profile first."
-                      : "Start will not type or generate images by itself in your normal Chrome. Enable Automation and log in once in the ImagePilot profile to let it work by itself."}</p>
-                    <div className="button-row compact-row">
-                      <button type="button" onClick={() => openProvider(provider.id)}>Open automation login profile</button>
-                      <button type="button" className={provider.automationEnabled ? "" : "primary"} onClick={() => setProviderAutomation(!provider.automationEnabled)}>
-                        {provider.automationEnabled ? "Disable Automation" : "Enable Automation"}
-                      </button>
-                    </div>
+                    <Field label="เลือกระบบ Browser ที่จะใช้งาน">
+                      <select 
+                        value={provider.automationEnabled && provider.browserProfilePath ? provider.browserProfilePath : "manual"} 
+                        onChange={(e) => {
+                          if (e.target.value === "manual") {
+                             setProviderAutomation(false);
+                          } else {
+                             const profile = snapshot.chromeProfiles.find(p => p.browserProfilePath === e.target.value);
+                             if (profile) assignChromeProfile(profile.id, provider.id);
+                          }
+                        }}
+                      >
+                        <option value="manual">ใช้ Chrome ปัจจุบันของคุณ (แบบ Manual)</option>
+                        <optgroup label="ใช้โปรไฟล์ ImagePilot (แบบ Auto)">
+                          {snapshot.chromeProfiles.map(p => (
+                            <option key={p.id} value={p.browserProfilePath}>{p.name} {p.accountLabel ? `(${p.accountLabel})` : ""}</option>
+                          ))}
+                        </optgroup>
+                      </select>
+                    </Field>
+                    <p className="muted" style={{ marginTop: 8, fontSize: '0.85em' }}>
+                      {provider.automationEnabled 
+                        ? "ระบบจะควบคุมและพิมพ์ให้อัตโนมัติใน Profile ที่คุณเลือก (กดปุ่มด้านล่างเพื่อเปิดหน้าต่าง Login ทิ้งไว้ก่อนรัน)" 
+                        : "แบบ Manual: ระบบจะไม่ควบคุม browser ตอนกด Start คุณจะต้องกดคัดลอก prompt ไปวางใน Chrome ที่ใช้อยู่เอง"}
+                    </p>
+                    {provider.automationEnabled && (
+                      <div className="button-row compact-row" style={{ marginTop: 12 }}>
+                        <button type="button" onClick={() => openProvider(provider.id)}>เปิด Chrome Profile ที่เลือกไว้</button>
+                      </div>
+                    )}
                   </div>
                 )}
                 <div className="manual-browser-note">

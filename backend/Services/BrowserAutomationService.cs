@@ -53,10 +53,23 @@ public sealed class BrowserAutomationService(AppPaths paths, ILogger<BrowserAuto
 
         try
         {
-            var context = await GetContextAsync(provider);
-            var page = context.Pages.LastOrDefault() ?? await context.NewPageAsync();
-            await NavigateToProviderAsync(page, provider);
-            await page.BringToFrontAsync();
+            IBrowserContext context;
+            IPage page;
+            try
+            {
+                context = await GetContextAsync(provider);
+                page = context.Pages.LastOrDefault() ?? await context.NewPageAsync();
+                await NavigateToProviderAsync(page, provider);
+                await page.BringToFrontAsync();
+            }
+            catch (Exception exception) when (IsClosedContextException(exception))
+            {
+                await ResetContextAsync(provider);
+                context = await GetContextAsync(provider);
+                page = context.Pages.LastOrDefault() ?? await context.NewPageAsync();
+                await NavigateToProviderAsync(page, provider);
+                await page.BringToFrontAsync();
+            }
 
             if (!string.IsNullOrWhiteSpace(provider.VerificationSelector) &&
                 await page.Locator(provider.VerificationSelector).CountAsync() > 0)
@@ -65,7 +78,14 @@ public sealed class BrowserAutomationService(AppPaths paths, ILogger<BrowserAuto
             }
 
             await page.Locator(provider.PromptInputSelector).FillAsync(job.Prompt);
-            await page.Locator(provider.SubmitButtonSelector).ClickAsync();
+            if (provider.SubmitButtonSelector.Equals("Enter", StringComparison.OrdinalIgnoreCase))
+            {
+                await page.Locator(provider.PromptInputSelector).PressAsync("Enter");
+            }
+            else
+            {
+                await page.Locator(provider.SubmitButtonSelector).ClickAsync();
+            }
 
             if (string.IsNullOrWhiteSpace(provider.ResultContainerSelector))
             {
@@ -77,39 +97,11 @@ public sealed class BrowserAutomationService(AppPaths paths, ILogger<BrowserAuto
                 Timeout = provider.DefaultTimeoutSeconds * 1000
             });
 
-            if (string.IsNullOrWhiteSpace(provider.DownloadButtonSelector))
-            {
-                var capturedPath = await TrySaveLatestImageAsync(page, project, provider, job);
-                return capturedPath is not null
-                    ? AutomationResult.Completed(capturedPath)
-                    : AutomationResult.Manual("Result detected, but no downloadable image was found. Download it manually, then mark the job complete.");
-            }
-
-            Directory.CreateDirectory(project.OutputFolder);
-            try
-            {
-                var download = await page.RunAndWaitForDownloadAsync(
-                    () => page.Locator(provider.DownloadButtonSelector).Last.ClickAsync(),
-                    new PageRunAndWaitForDownloadOptions { Timeout = 30000 });
-                var extension = Path.GetExtension(download.SuggestedFilename);
-                var outputPath = BuildOutputPath(project, provider, job, string.IsNullOrWhiteSpace(extension) ? ".png" : extension);
-                await download.SaveAsAsync(outputPath);
-                return AutomationResult.Completed(outputPath);
-            }
-            catch (TimeoutException)
-            {
-                var capturedPath = await TrySaveLatestImageAsync(page, project, provider, job);
-                return capturedPath is not null
-                    ? AutomationResult.Completed(capturedPath)
-                    : AutomationResult.Manual("Result detected, but the download button was not available. Download the image manually, then mark the job complete.");
-            }
-            catch (PlaywrightException exception) when (exception.Message.Contains("Timeout", StringComparison.OrdinalIgnoreCase))
-            {
-                var capturedPath = await TrySaveLatestImageAsync(page, project, provider, job);
-                return capturedPath is not null
-                    ? AutomationResult.Completed(capturedPath)
-                    : AutomationResult.Manual("Result detected, but the download button was not available. Download the image manually, then mark the job complete.");
-            }
+            // Bypass the flaky UI download button entirely and fetch the image directly!
+            var capturedPath = await TrySaveLatestImageAsync(page, project, provider, job);
+            return capturedPath is not null
+                ? AutomationResult.Completed(capturedPath)
+                : AutomationResult.Manual("Result detected, but the image could not be captured automatically. Download it manually, then mark the job complete.");
         }
         catch (Exception exception)
         {
@@ -124,7 +116,7 @@ public sealed class BrowserAutomationService(AppPaths paths, ILogger<BrowserAuto
     {
         try
         {
-            var dataUrl = await page.EvaluateAsync<string?>(
+            var sourceOrDataUrl = await page.EvaluateAsync<string?>(
                 """
                 async () => {
                   const images = Array.from(document.images)
@@ -135,43 +127,57 @@ public sealed class BrowserAutomationService(AppPaths paths, ILogger<BrowserAuto
                     });
                   const image = images.at(-1);
                   if (!image) return null;
+                  
                   const source = image.currentSrc || image.src;
                   if (source.startsWith("data:")) return source;
-                  const response = await fetch(source);
-                  const blob = await response.blob();
-                  return await new Promise((resolve) => {
-                    const reader = new FileReader();
-                    reader.onloadend = () => resolve(String(reader.result));
-                    reader.onerror = () => resolve(null);
-                    reader.readAsDataURL(blob);
-                  });
+                  
+                  try {
+                    const response = await fetch(source);
+                    const blob = await response.blob();
+                    return await new Promise((resolve) => {
+                      const reader = new FileReader();
+                      reader.onloadend = () => resolve(String(reader.result));
+                      reader.onerror = () => resolve(null);
+                      reader.readAsDataURL(blob);
+                    });
+                  } catch (e) {
+                    return null;
+                  }
                 }
                 """);
 
-            if (string.IsNullOrWhiteSpace(dataUrl) || !dataUrl.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrWhiteSpace(sourceOrDataUrl))
             {
                 return null;
             }
 
-            var commaIndex = dataUrl.IndexOf(',');
-            if (commaIndex < 0)
+            byte[] bytes;
+            var extension = ".png";
+
+            if (sourceOrDataUrl.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase))
+            {
+                var commaIndex = sourceOrDataUrl.IndexOf(',');
+                if (commaIndex < 0) return null;
+                bytes = Convert.FromBase64String(sourceOrDataUrl[(commaIndex + 1)..]);
+            }
+            else if (sourceOrDataUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            {
+                var response = await page.Context.APIRequest.GetAsync(sourceOrDataUrl);
+                if (!response.Ok) return null;
+                bytes = await response.BodyAsync();
+                
+                if (sourceOrDataUrl.Contains(".jpg", StringComparison.OrdinalIgnoreCase) || sourceOrDataUrl.Contains(".jpeg", StringComparison.OrdinalIgnoreCase)) extension = ".jpg";
+                else if (sourceOrDataUrl.Contains(".webp", StringComparison.OrdinalIgnoreCase)) extension = ".webp";
+            }
+            else 
             {
                 return null;
             }
 
-            var mime = dataUrl[5..commaIndex].Split(';')[0];
-            var extension = mime.ToLowerInvariant() switch
-            {
-                "image/jpeg" => ".jpg",
-                "image/png" => ".png",
-                "image/webp" => ".webp",
-                "image/gif" => ".gif",
-                _ => ".png"
-            };
-            var bytes = Convert.FromBase64String(dataUrl[(commaIndex + 1)..]);
-            Directory.CreateDirectory(project.OutputFolder);
             var outputPath = BuildOutputPath(project, provider, job, extension);
+            Directory.CreateDirectory(project.OutputFolder);
             await File.WriteAllBytesAsync(outputPath, bytes);
+
             return outputPath;
         }
         catch (Exception exception)
@@ -206,7 +212,9 @@ public sealed class BrowserAutomationService(AppPaths paths, ILogger<BrowserAuto
             var options = new BrowserTypeLaunchPersistentContextOptions
             {
                 Headless = false,
-                AcceptDownloads = true
+                AcceptDownloads = true,
+                IgnoreDefaultArgs = new[] { "--enable-automation" },
+                Args = new[] { "--disable-blink-features=AutomationControlled" }
             };
             if (!string.IsNullOrWhiteSpace(provider.BrowserChannel))
             {
