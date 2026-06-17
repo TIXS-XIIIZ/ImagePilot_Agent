@@ -78,30 +78,70 @@ public sealed class BrowserAutomationService(AppPaths paths, ILogger<BrowserAuto
             }
 
             await page.Locator(provider.PromptInputSelector).FillAsync(job.Prompt);
+            await Task.Delay(500); // Small delay to let the UI register the input
+
+            var submitted = false;
             if (provider.SubmitButtonSelector.Equals("Enter", StringComparison.OrdinalIgnoreCase))
             {
                 await page.Locator(provider.PromptInputSelector).PressAsync("Enter");
+                submitted = true;
             }
             else
             {
-                await page.Locator(provider.SubmitButtonSelector).ClickAsync();
+                try
+                {
+                    await page.Locator(provider.SubmitButtonSelector).First.ClickAsync(
+                        new LocatorClickOptions { Timeout = 5000 });
+                    submitted = true;
+                }
+                catch
+                {
+                    // Selector failed — fallback to pressing Enter
+                    logger.LogInformation("Submit button selector failed, falling back to Enter key for job {JobId}", job.Id);
+                    await page.Locator(provider.PromptInputSelector).PressAsync("Enter");
+                    submitted = true;
+                }
             }
 
-            if (string.IsNullOrWhiteSpace(provider.ResultContainerSelector))
+            // Wait for result to appear — try configured selector, fallback to generic wait
+            try
             {
-                return AutomationResult.Manual("Prompt submitted. Result selector is empty, so confirm and download the output manually.");
+                if (!string.IsNullOrWhiteSpace(provider.ResultContainerSelector))
+                {
+                    await page.Locator(provider.ResultContainerSelector).Last.WaitForAsync(new LocatorWaitForOptions
+                    {
+                        Timeout = provider.DefaultTimeoutSeconds * 1000
+                    });
+                }
+                else
+                {
+                    await Task.Delay(15000); // No selector configured — just wait
+                }
+            }
+            catch (TimeoutException)
+            {
+                logger.LogInformation("Result selector timed out for job {JobId}, will attempt image capture anyway", job.Id);
             }
 
-            await page.Locator(provider.ResultContainerSelector).Last.WaitForAsync(new LocatorWaitForOptions
-            {
-                Timeout = provider.DefaultTimeoutSeconds * 1000
-            });
+            // Wait a bit extra for the image to fully render
+            await Task.Delay(3000);
 
-            // Bypass the flaky UI download button entirely and fetch the image directly!
-            var capturedPath = await TrySaveLatestImageAsync(page, project, provider, job);
-            return capturedPath is not null
-                ? AutomationResult.Completed(capturedPath)
-                : AutomationResult.Manual("Result detected, but the image could not be captured automatically. Download it manually, then mark the job complete.");
+            // Retry image capture up to 3 times with 5-second gaps
+            for (int attempt = 1; attempt <= 3; attempt++)
+            {
+                var capturedPath = await TrySaveLatestImageAsync(page, project, provider, job);
+                if (capturedPath is not null)
+                {
+                    logger.LogInformation("Image captured on attempt {Attempt} for job {JobId}", attempt, job.Id);
+                    return AutomationResult.Completed(capturedPath);
+                }
+                if (attempt < 3)
+                {
+                    logger.LogInformation("Image capture attempt {Attempt} returned null for job {JobId}, retrying...", attempt, job.Id);
+                    await Task.Delay(5000);
+                }
+            }
+            return AutomationResult.Manual("Result detected, but the image could not be captured after 3 attempts. Download it manually, then mark the job complete.");
         }
         catch (Exception exception)
         {
