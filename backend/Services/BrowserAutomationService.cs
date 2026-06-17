@@ -174,7 +174,12 @@ public sealed class BrowserAutomationService(AppPaths paths, ILogger<BrowserAuto
                     if (naturalWidth < 128 || naturalHeight < 128) continue;
 
                     var src = await img.EvaluateAsync<string?>("el => el.currentSrc || el.src || ''");
-                    if (string.IsNullOrWhiteSpace(src) || src.StartsWith("chrome-extension:")) continue;
+                    // Skip extensions and data: URLs (which Gemini uses for its SVG loading placeholders)
+                    // Real generated images from Gemini will always be blob:https://... or http://...
+                    if (string.IsNullOrWhiteSpace(src) || src.StartsWith("chrome-extension:") || src.StartsWith("data:")) 
+                    {
+                        continue;
+                    }
 
                     // Use Playwright's native screenshot — always produces valid PNG bytes
                     var screenshotBytes = await img.ScreenshotAsync(new LocatorScreenshotOptions
