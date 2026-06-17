@@ -156,69 +156,53 @@ public sealed class BrowserAutomationService(AppPaths paths, ILogger<BrowserAuto
     {
         try
         {
-            var sourceOrDataUrl = await page.EvaluateAsync<string?>(
-                """
-                async () => {
-                  const images = Array.from(document.images)
-                    .filter((image) => image.naturalWidth >= 128 && image.naturalHeight >= 128)
-                    .filter((image) => {
-                      const source = image.currentSrc || image.src || "";
-                      return source && !source.startsWith("chrome-extension:");
+            // Find all large images on the page
+            var allImages = page.Locator("img");
+            var count = await allImages.CountAsync();
+
+            // Iterate from last to first to find the most recent large image
+            for (int i = count - 1; i >= 0; i--)
+            {
+                var img = allImages.Nth(i);
+                try
+                {
+                    var isVisible = await img.IsVisibleAsync();
+                    if (!isVisible) continue;
+
+                    var naturalWidth = await img.EvaluateAsync<int>("el => el.naturalWidth");
+                    var naturalHeight = await img.EvaluateAsync<int>("el => el.naturalHeight");
+                    if (naturalWidth < 128 || naturalHeight < 128) continue;
+
+                    var src = await img.EvaluateAsync<string?>("el => el.currentSrc || el.src || ''");
+                    if (string.IsNullOrWhiteSpace(src) || src.StartsWith("chrome-extension:")) continue;
+
+                    // Use Playwright's native screenshot — always produces valid PNG bytes
+                    var screenshotBytes = await img.ScreenshotAsync(new LocatorScreenshotOptions
+                    {
+                        Type = ScreenshotType.Png
                     });
-                  const image = images.at(-1);
-                  if (!image) return null;
-                  
-                  const source = image.currentSrc || image.src;
-                  if (source.startsWith("data:")) return source;
-                  
-                  try {
-                    const response = await fetch(source);
-                    const blob = await response.blob();
-                    return await new Promise((resolve) => {
-                      const reader = new FileReader();
-                      reader.onloadend = () => resolve(String(reader.result));
-                      reader.onerror = () => resolve(null);
-                      reader.readAsDataURL(blob);
-                    });
-                  } catch (e) {
-                    return null;
-                  }
+
+                    if (screenshotBytes.Length < 1000)
+                    {
+                        // Too small — likely a placeholder or icon
+                        continue;
+                    }
+
+                    var outputPath = BuildOutputPath(project, provider, job, ".png");
+                    Directory.CreateDirectory(project.OutputFolder);
+                    await File.WriteAllBytesAsync(outputPath, screenshotBytes);
+                    logger.LogInformation("Saved image ({Width}x{Height}, {Size} bytes) for job {JobId} to {Path}",
+                        naturalWidth, naturalHeight, screenshotBytes.Length, job.Id, outputPath);
+                    return outputPath;
                 }
-                """);
-
-            if (string.IsNullOrWhiteSpace(sourceOrDataUrl))
-            {
-                return null;
+                catch (Exception ex)
+                {
+                    logger.LogDebug(ex, "Skipping image element {Index} for job {JobId}", i, job.Id);
+                    continue;
+                }
             }
 
-            byte[] bytes;
-            var extension = ".png";
-
-            if (sourceOrDataUrl.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase))
-            {
-                var commaIndex = sourceOrDataUrl.IndexOf(',');
-                if (commaIndex < 0) return null;
-                bytes = Convert.FromBase64String(sourceOrDataUrl[(commaIndex + 1)..]);
-            }
-            else if (sourceOrDataUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-            {
-                var response = await page.Context.APIRequest.GetAsync(sourceOrDataUrl);
-                if (!response.Ok) return null;
-                bytes = await response.BodyAsync();
-                
-                if (sourceOrDataUrl.Contains(".jpg", StringComparison.OrdinalIgnoreCase) || sourceOrDataUrl.Contains(".jpeg", StringComparison.OrdinalIgnoreCase)) extension = ".jpg";
-                else if (sourceOrDataUrl.Contains(".webp", StringComparison.OrdinalIgnoreCase)) extension = ".webp";
-            }
-            else 
-            {
-                return null;
-            }
-
-            var outputPath = BuildOutputPath(project, provider, job, extension);
-            Directory.CreateDirectory(project.OutputFolder);
-            await File.WriteAllBytesAsync(outputPath, bytes);
-
-            return outputPath;
+            return null;
         }
         catch (Exception exception)
         {
